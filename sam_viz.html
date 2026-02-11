@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suffix Automaton - Trapezoid View</title>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; background: #060a10; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo } = React;
+
+        const C = {
+            bg: "#060a10", surface: "#0d1319", surfaceAlt: "#131b25", border: "#1a2536",
+            text: "#dde4ee", dim: "#4a6078", accent: "#00d4f5", accentBg: "rgba(0,212,245,0.07)",
+            green: "#00e89d", greenBg: "rgba(0,232,157,0.07)",
+            orange: "#ff9f43", orangeBg: "rgba(255,159,67,0.07)",
+            red: "#ff6b6b", redBg: "rgba(255,107,107,0.07)",
+            purple: "#b388ff", purpleBg: "rgba(179,136,255,0.07)",
+            yellow: "#ffe066", yellowBg: "rgba(255,224,102,0.07)",
+            clone: "#ce93d8",
+            suffLink: "#5c8aff", suffLinkDim: "rgba(92,138,255,0.3)",
+            transLink: "#ef7a5a", transLinkDim: "rgba(239,122,90,0.25)",
+        };
+
+        /* ══════ SAM BUILD WITH FULL STEP HISTORY ══════ */
+        function buildSAM(str) {
+            const S = [{ id: 0, len: 0, link: -1, trans: {}, isClone: false, dp: [] }];
+            let last = 0, nxt = 1;
+            const steps = [];
+
+            steps.push({ phase: "init", ci: -1, ch: null, msg: "Initialize suffix automaton with root t₀", detail: "Root state represents the empty string ε.", states: snap(S), last: 0, hl: { created: [0] }, split: null });
+
+            for (let i = 0; i < str.length; i++) {
+                const c = str[i];
+                const cur = nxt++;
+                S.push({ id: cur, len: S[last].len + 1, link: -1, trans: {}, isClone: false, dp: [i] });
+
+                steps.push({ phase: "create", ci: i, ch: c, msg: `Create state ${cur} for '${c}' (len=${S[last].len + 1})`, detail: `Extends "${str.slice(0, i + 1)}". Direct endpos = {${i}}.`, states: snap(S), last, hl: { created: [cur], active: [last] }, split: null });
+
+                let p = last;
+                const added = [];
+                while (p !== -1 && !(c in S[p].trans)) { S[p].trans[c] = cur; added.push(p); p = S[p].link; }
+
+                if (added.length > 0) {
+                    const trail = [...added.map(a => label(a)), p === -1 ? "null" : label(p) + `(has '${c}')`];
+                    steps.push({ phase: "walk", ci: i, ch: c, msg: `Walk: ${trail.join(" → ")}. Add '${c}'→${cur} to [${added.map(label).join(",")}]`, detail: p === -1 ? "Reached null — no existing transition found." : `Stopped at ${label(p)}: already has '${c}' transition.`, states: snap(S), last, hl: { modified: added, created: [cur] }, split: null });
+                }
+
+                if (p === -1) {
+                    S[cur].link = 0;
+                    steps.push({ phase: "link_root", ci: i, ch: c, msg: `Link: ${cur} → t₀`, detail: "No state had a '" + c + "' transition. Suffix link goes to root.", states: snap(S), last: cur, hl: { created: [cur], slink: [cur, 0] }, split: null });
+                } else {
+                    const q = S[p].trans[c];
+                    if (S[q].len === S[p].len + 1) {
+                        S[cur].link = q;
+                        steps.push({ phase: "link_ok", ci: i, ch: c, msg: `q=${label(q)}, q.len=${S[q].len} == ${label(p)}.len+1=${S[p].len + 1} ✓`, detail: `Tight boundary — ${label(q)}'s class is exactly one char longer than ${label(p)}. No split needed.`, states: snap(S), last: cur, hl: { created: [cur], active: [p, q], slink: [cur, q] }, split: null });
+                    } else {
+                        const qMin = S[q].link >= 0 ? S[S[q].link].len + 1 : 1;
+                        const splitAt = S[p].len + 1;
+
+                        steps.push({ phase: "split_detect", ci: i, ch: c, msg: `q=${label(q)}, q.len=${S[q].len} ≠ ${label(p)}.len+1=${splitAt} → SPLIT`, detail: `State ${label(q)} has substrings of lengths [${qMin}..${S[q].len}]. We need len=${splitAt}. The new '${c}' adds endpos for shorter substrings (≤${splitAt}) but NOT longer ones (>${splitAt}). Endpos diverges!`, states: snap(S), last, hl: { splitSrc: [q], active: [p], created: [cur] }, split: { q, p, splitAt, qMin, qMax: S[q].len } });
+
+                        const cl = nxt++;
+                        S.push({ id: cl, len: splitAt, link: S[q].link, trans: { ...S[q].trans }, isClone: true, dp: [] });
+
+                        steps.push({ phase: "split_clone", ci: i, ch: c, msg: `Clone ${label(q)} → ${cl}' (len=${splitAt})`, detail: `Clone takes shorter substrings [${qMin}..${splitAt}]. Copies transitions and inherits ${label(q)}'s old suffix link → ${S[q].link < 0 ? "null" : label(S[q].link)}.`, states: snap(S), last, hl: { cloned: [cl], splitSrc: [q], active: [p], created: [cur] }, split: { q, cl, p, splitAt, qMin, qMax: S[q].len } });
+
+                        S[q].link = cl;
+                        S[cur].link = cl;
+
+                        steps.push({ phase: "split_relink", ci: i, ch: c, msg: `Relink: ${label(q)}.link → ${cl}', ${cur}.link → ${cl}'`, detail: `Original ${label(q)} (keeping longer substrings) and new state ${cur} both point to clone ${cl}'.`, states: snap(S), last, hl: { cloned: [cl], splitSrc: [q], created: [cur], slink: [q, cl], slink2: [cur, cl] }, split: { q, cl, splitAt, qMin } });
+
+                        const redir = [];
+                        while (p !== -1 && S[p].trans[c] === q) { S[p].trans[c] = cl; redir.push(p); p = S[p].link; }
+                        if (redir.length > 0) {
+                            steps.push({ phase: "split_redir", ci: i, ch: c, msg: `Redirect: [${redir.map(label).join(",")}] '${c}' → ${cl}' (was ${label(q)})`, detail: `Parents that extended to the "fat" state now point to the clone instead.`, states: snap(S), last, hl: { modified: redir, cloned: [cl], splitSrc: [q] }, split: { q, cl, redir } });
+                        }
+                    }
+                }
+                last = cur;
+                steps.push({ phase: "done", ci: i, ch: c, msg: `✓ '${c}' done. String: "${str.slice(0, i + 1)}"`, detail: `Automaton now accepts all substrings of "${str.slice(0, i + 1)}".`, states: snap(S), last: cur, hl: { active: [cur] }, split: null });
+            }
+            return { states: S, steps, str, last };
+        }
+
+        function snap(S) { return S.map(s => ({ ...s, trans: { ...s.trans }, dp: [...s.dp] })); }
+        function label(id) { return id === 0 ? "t₀" : String(id); }
+
+        function computeEndpos(states, str) {
+            const n = states.length;
+            const ep = states.map(s => new Set(s.dp));
+            const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => states[b].len - states[a].len);
+            for (const s of order) { if (states[s].link >= 0) for (const v of ep[s]) ep[states[s].link].add(v); }
+            return ep;
+        }
+
+        function getSubs(states, ep, sid, str) {
+            if (sid === 0) return [{ t: "ε", l: 0 }];
+            const s = states[sid];
+            const mn = s.link >= 0 ? states[s.link].len + 1 : 1;
+            const eps = [...ep[sid]].sort((a, b) => a - b);
+            if (!eps.length) return [];
+            const res = [];
+            for (let l = mn; l <= s.len; l++) res.push({ t: str.slice(eps[0] - l + 1, eps[0] + 1), l });
+            return res;
+        }
+
+        /* ══════ DRAWING HELPERS ══════ */
+
+        function TrapezoidState({ s, subs, x, y, hlType, selected, onClick, epsArr, splitAt }) {
+            const pad = 5, lh = 17;
+            const n = Math.max(subs.length, 1);
+            const topW = 44;
+            const maxTxt = Math.max(topW, ...subs.map(sub => sub.t.length * 8 + 14));
+            const botW = Math.max(topW + 8, maxTxt);
+            const h = n * lh + pad * 2 + 14;
+
+            let border = C.border, bg = C.surface, lbl = C.dim;
+            if (hlType === "created") { border = C.accent; bg = C.accentBg; lbl = C.accent; }
+            else if (hlType === "cloned") { border = C.clone; bg = C.purpleBg; lbl = C.clone; }
+            else if (hlType === "splitSrc") { border = C.orange; bg = C.orangeBg; lbl = C.orange; }
+            else if (hlType === "modified") { border = C.yellow; bg = C.yellowBg; lbl = C.yellow; }
+            else if (hlType === "active") { border = C.green; bg = C.greenBg; lbl = C.green; }
+            if (selected) { border = C.yellow; bg = C.yellowBg; lbl = C.yellow; }
+
+            const path = `M${x - topW / 2},${y} L${x + topW / 2},${y} L${x + botW / 2},${y + h} L${x - botW / 2},${y + h} Z`;
+
+            // Find split line position
+            let splitY = null;
+            if (splitAt != null && subs.length > 1) {
+                const idx = subs.findIndex(sub => sub.l > splitAt);
+                if (idx > 0) splitY = y + pad + 10 + (idx - 0.5) * lh;
+            }
+
+            return (
+                <g onClick={onClick} style={{ cursor: "pointer" }}>
+                    {selected && <path d={`M${x - topW / 2 - 4},${y - 4} L${x + topW / 2 + 4},${y - 4} L${x + botW / 2 + 4},${y + h + 4} L${x - botW / 2 - 4},${y + h + 4} Z`} fill="none" stroke={border} strokeWidth={1} opacity={0.3} />}
+                    <path d={path} fill={bg} stroke={border} strokeWidth={selected || hlType ? 2 : 1.2} />
+
+                    {/* Label above */}
+                    <text x={x} y={y - 7} textAnchor="middle" fill={lbl} fontSize="9" fontWeight="700" fontFamily="'JetBrains Mono',monospace">
+                        {s.id === 0 ? "t₀" : s.isClone ? `${s.id}'` : s.id}
+                        <tspan fill={C.dim} fontSize="7.5"> len={s.len}</tspan>
+                    </text>
+
+                    {/* Substrings */}
+                    {subs.map((sub, i) => {
+                        let col = C.text;
+                        if (splitAt != null) col = sub.l <= splitAt ? C.clone : C.orange;
+                        return (
+                            <text key={i} x={x} y={y + pad + 12 + i * lh} textAnchor="middle" fontSize="11" fontWeight="600" fontFamily="'JetBrains Mono',monospace" fill={col}>
+                                {sub.t === "ε" ? "ε" : `/${sub.t}/`}
+                            </text>
+                        );
+                    })}
+
+                    {/* Split line */}
+                    {splitY != null && (() => {
+                        const frac = (subs.findIndex(sub => sub.l > splitAt) - 0.25) / n;
+                        const w = topW + (botW - topW) * frac;
+                        return <line x1={x - w / 2 + 3} y1={splitY} x2={x + w / 2 - 3} y2={splitY} stroke={C.red} strokeWidth={2} strokeDasharray="4 3" opacity={0.9} />;
+                    })()}
+
+                    {/* Endpos below */}
+                    {epsArr.length > 0 && (
+                        <text x={x} y={y + h + 13} textAnchor="middle" fontSize="7.5" fill={C.green} fontFamily="'JetBrains Mono',monospace">
+                            ep:{`{${epsArr.join(",")}}`}
+                        </text>
+                    )}
+                </g>
+            );
+        }
+
+        function CurvedArrow({ x1, y1, x2, y2, color, dash, width, opacity }) {
+            const dx = x2 - x1, dy = y2 - y1, d = Math.sqrt(dx * dx + dy * dy);
+            if (d < 2) return null;
+            const nx = dx / d, ny = dy / d;
+            const bend = Math.min(40, d * 0.35);
+            const cx = (x1 + x2) / 2 + ny * bend, cy = (y1 + y2) / 2 - nx * bend;
+            return (
+                <g opacity={opacity}>
+                    <path d={`M${x1},${y1} Q${cx},${cy} ${x2},${y2}`} fill="none" stroke={color} strokeWidth={width} strokeDasharray={dash || "none"} />
+                    {/* Arrowhead */}
+                    <circle cx={x2} cy={y2} r={width + 0.5} fill={color} />
+                </g>
+            );
+        }
+
+        /* ══════ PRESETS ══════ */
+        const PRESETS = [
+            { str: "banana", desc: "Classic — watch {a,ba} split" },
+            { str: "abcbc", desc: "Repeated suffix" },
+            { str: "abab", desc: "Overlapping repeats" },
+            { str: "aabbaab", desc: "Complex endpos" },
+            { str: "aaaa", desc: "Same char — chain splits" },
+            { str: "abcabc", desc: "Full period repeat" },
+        ];
+
+        /* ══════ MAIN ══════ */
+        function SAMTrapezoid() {
+            const [preIdx, setPreIdx] = useState(0);
+            const [custom, setCustom] = useState("");
+            const [step, setStep] = useState(0);
+            const [sel, setSel] = useState(null);
+
+            const str = custom || PRESETS[preIdx].str;
+            const sam = useMemo(() => buildSAM(str), [str]);
+            const s = sam.steps[Math.min(step, sam.steps.length - 1)];
+            const cur = s.states;
+            const ep = useMemo(() => computeEndpos(cur, str), [cur, str]);
+
+            const W = 820, H = 400;
+
+            // Layout: group by len, spread vertically
+            const pos = useMemo(() => {
+                const layers = {};
+                for (const st of cur) (layers[st.len] ??= []).push(st.id);
+                const keys = Object.keys(layers).map(Number).sort((a, b) => a - b);
+                const xPad = 70, xSp = keys.length > 1 ? Math.min(130, (W - xPad * 2) / (keys.length - 1)) : 0;
+                const p = [];
+                for (let li = 0; li < keys.length; li++) {
+                    const ids = layers[keys[li]];
+                    const ySp = ids.length > 1 ? Math.min(110, (H - 140) / (ids.length - 1)) : 0;
+                    const sy = H / 2 - ((ids.length - 1) * ySp) / 2 - 10;
+                    for (let j = 0; j < ids.length; j++) p[ids[j]] = { x: xPad + li * xSp, y: sy + j * ySp };
+                }
+                return p;
+            }, [cur, W, H]);
+
+            function hlOf(id) {
+                const h = s.hl;
+                if (h.created?.includes(id)) return "created";
+                if (h.cloned?.includes(id)) return "cloned";
+                if (h.splitSrc?.includes(id)) return "splitSrc";
+                if (h.modified?.includes(id)) return "modified";
+                if (h.active?.includes(id)) return "active";
+                return null;
+            }
+
+            const phaseCol = { init: C.dim, create: C.accent, walk: C.yellow, link_root: C.green, link_ok: C.green, split_detect: C.red, split_clone: C.clone, split_relink: C.clone, split_redir: C.orange, done: C.green };
+            const phaseLbl = { init: "INIT", create: "CREATE", walk: "WALK", link_root: "LINK→ROOT", link_ok: "LINK ✓", split_detect: "SPLIT!", split_clone: "CLONE", split_relink: "RELINK", split_redir: "REDIRECT", done: "DONE ✓" };
+
+            return (
+                <div style={{ background: C.bg, minHeight: "100vh", color: C.text, fontFamily: "'Inter','Segoe UI',sans-serif", padding: "16px 20px" }}>
+                    <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}`}</style>
+
+                    <div style={{ textAlign: "center", marginBottom: 14 }}>
+                        <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", background: `linear-gradient(135deg, ${C.accent}, ${C.clone})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                            Suffix Automaton — Trapezoid View
+                        </h1>
+                        <p style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>Equivalence classes as trapezoids · Red dashed line = split point · Click states to inspect</p>
+                    </div>
+
+                    {/* Presets */}
+                    <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                        {PRESETS.map((p, i) => (
+                            <button key={i} onClick={() => { setPreIdx(i); setCustom(""); setStep(0); setSel(null); }}
+                                style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'JetBrains Mono',monospace", border: `1px solid ${!custom && preIdx === i ? C.accent : C.border}`, background: !custom && preIdx === i ? C.accentBg : C.surface, color: !custom && preIdx === i ? C.accent : C.dim }}>
+                                {p.str}
+                            </button>
+                        ))}
+                        <input value={custom} onChange={e => { setCustom(e.target.value.toLowerCase().replace(/[^a-z]/g, "").slice(0, 10)); setStep(0); setSel(null); }} placeholder="custom" style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", width: 100, outline: "none" }} />
+                    </div>
+                    {!custom && <div style={{ textAlign: "center", fontSize: 10, color: C.dim, marginBottom: 8 }}>{PRESETS[preIdx].desc}</div>}
+
+                    {/* String */}
+                    <div style={{ textAlign: "center", marginBottom: 8 }}>
+                        <div style={{ display: "inline-flex", gap: 1, padding: "5px 12px", background: C.surface, borderRadius: 7, border: `1px solid ${C.border}` }}>
+                            {str.split("").map((ch, i) => (
+                                <span key={i} style={{ display: "inline-block", width: 24, height: 28, lineHeight: "28px", textAlign: "center", fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", borderRadius: 3, color: s.ci === i ? C.accent : s.ci > i ? C.green : C.dim, background: s.ci === i ? C.accentBg : "transparent" }}>
+                                    {ch}
+                                    <div style={{ fontSize: 7, color: C.dim, lineHeight: "8px", marginTop: -2 }}>{i}</div>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Controls */}
+                    <div style={{ display: "flex", gap: 5, justifyContent: "center", marginBottom: 8, alignItems: "center" }}>
+                        <Btn onClick={() => setStep(0)} off={step === 0}>⏮</Btn>
+                        <Btn onClick={() => setStep(Math.max(0, step - 1))} off={step === 0}>◀</Btn>
+                        <span style={{ fontSize: 11, color: C.dim, fontFamily: "'JetBrains Mono',monospace", minWidth: 65, textAlign: "center" }}>{step + 1}/{sam.steps.length}</span>
+                        <Btn onClick={() => setStep(Math.min(sam.steps.length - 1, step + 1))} off={step >= sam.steps.length - 1}>▶</Btn>
+                        <Btn onClick={() => setStep(sam.steps.length - 1)} off={step >= sam.steps.length - 1}>⏭</Btn>
+                    </div>
+
+                    {/* Step info */}
+                    <div style={{ maxWidth: 800, margin: "0 auto 8px", padding: "10px 14px", background: C.surface, borderRadius: 9, borderLeft: `4px solid ${phaseCol[s.phase]}`, border: `1px solid ${C.border}` }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                            <span style={{ fontSize: 8, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", padding: "2px 6px", borderRadius: 3, background: `${phaseCol[s.phase]}18`, color: phaseCol[s.phase] }}>{phaseLbl[s.phase]}</span>
+                            {s.ch && <span style={{ fontSize: 9, color: C.dim }}>char '{s.ch}' (idx {s.ci})</span>}
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace", marginBottom: 2 }}>{s.msg}</div>
+                        <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.5 }}>{s.detail}</div>
+
+                        {s.split && s.phase === "split_detect" && (
+                            <div style={{ marginTop: 8, padding: "8px 10px", background: C.redBg, borderRadius: 6, border: `1px solid rgba(255,107,107,0.15)`, fontSize: 10, lineHeight: 1.7 }}>
+                                <div style={{ color: C.red, fontWeight: 700, marginBottom: 4 }}>WHY DOES ENDPOS DIVERGE?</div>
+                                <div style={{ color: C.dim }}>
+                                    State {label(s.split.q)} contains substrings of lengths [{s.split.qMin}..{s.split.qMax}].<br />
+                                    Adding '{s.ch}' creates a new occurrence (endpos) for <span style={{ color: C.clone }}>shorter substrings (len ≤ {s.split.splitAt})</span> — they appear as a suffix of the new extension.<br />
+                                    But <span style={{ color: C.orange }}>longer substrings (len &gt; {s.split.splitAt})</span> do NOT get this new occurrence — they need more preceding context that isn't there.<br />
+                                    <span style={{ color: C.red }}>Same state, different endpos → must split!</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* SVG */}
+                    <div style={{ maxWidth: 820, margin: "0 auto 8px", background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, overflowX: "auto" }}>
+                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", minWidth: 550 }}>
+                            <rect width={W} height={H} fill={C.bg} />
+
+                            {/* Suffix links */}
+                            {cur.map(st => {
+                                if (st.link < 0 || !pos[st.id] || !pos[st.link]) return null;
+                                const isSL = (s.hl.slink && s.hl.slink[0] === st.id && s.hl.slink[1] === st.link) || (s.hl.slink2 && s.hl.slink2[0] === st.id && s.hl.slink2[1] === st.link);
+                                return <CurvedArrow key={`sl${st.id}`} x1={pos[st.id].x} y1={pos[st.id].y} x2={pos[st.link].x} y2={pos[st.link].y} color={isSL ? C.suffLink : C.suffLinkDim} dash="6 4" width={isSL ? 2 : 0.8} opacity={isSL ? 0.75 : 0.15} />;
+                            })}
+
+                            {/* Transitions */}
+                            {cur.map(st => Object.entries(st.trans).map(([ch, to]) => {
+                                if (!pos[st.id] || !pos[to]) return null;
+                                const p1 = pos[st.id], p2 = pos[to];
+                                const dx = p2.x - p1.x, dy = p2.y - p1.y, d = Math.sqrt(dx * dx + dy * dy);
+                                if (d < 2) return null;
+                                const nx = dx / d, ny = dy / d;
+                                const x1 = p1.x + nx * 26, y1 = p1.y + ny * 22;
+                                const x2 = p2.x - nx * 26, y2 = p2.y - ny * 22;
+                                const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+                                return (
+                                    <g key={`t${st.id}${ch}`} opacity={0.35}>
+                                        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={C.transLink} strokeWidth={1.2} />
+                                        <circle cx={x2} cy={y2} r={2} fill={C.transLink} />
+                                        <rect x={mx - 6} y={my - 7} width={12} height={14} rx={3} fill={C.bg} opacity={0.9} />
+                                        <text x={mx} y={my + 4} textAnchor="middle" fill={C.dim} fontSize="9" fontWeight="700" fontFamily="'JetBrains Mono',monospace">{ch}</text>
+                                    </g>
+                                );
+                            }))}
+
+                            {/* Trapezoids */}
+                            {cur.map(st => {
+                                if (!pos[st.id]) return null;
+                                const subs = getSubs(cur, ep, st.id, str);
+                                const epsArr = [...ep[st.id]].sort((a, b) => a - b);
+                                const hl = hlOf(st.id);
+                                const splitAt = s.split && (s.phase === "split_detect" || s.phase === "split_clone") && s.split.q === st.id ? s.split.splitAt : null;
+                                return <TrapezoidState key={st.id} s={st} subs={subs} x={pos[st.id].x} y={pos[st.id].y} hlType={hl} selected={sel === st.id} onClick={() => setSel(sel === st.id ? null : st.id)} epsArr={epsArr} splitAt={splitAt} />;
+                            })}
+
+                            {/* Legend */}
+                            <g transform={`translate(${W - 160}, 16)`} style={{ fontSize: 7.5, fontFamily: "'JetBrains Mono',monospace" }}>
+                                <text fill={C.dim} fontWeight={700} fontSize={8}>LEGEND</text>
+                                <line x1={0} y1={12} x2={18} y2={12} stroke={C.transLinkDim} strokeWidth={1.2} /><circle cx={18} cy={12} r={1.5} fill={C.transLink} />
+                                <text x={24} y={15} fill={C.dim}>Transition</text>
+                                <line x1={0} y1={25} x2={18} y2={25} stroke={C.suffLinkDim} strokeWidth={1} strokeDasharray="5 3" />
+                                <text x={24} y={28} fill={C.dim}>Suffix link</text>
+                                <line x1={0} y1={38} x2={18} y2={38} stroke={C.red} strokeWidth={2} strokeDasharray="4 3" />
+                                <text x={24} y={41} fill={C.dim}>Split line</text>
+                                <rect x={0} y={47} width={12} height={8} fill={C.purpleBg} stroke={C.clone} strokeWidth={1} rx={2} />
+                                <text x={24} y={54} fill={C.dim}>Clone</text>
+                            </g>
+                        </svg>
+                    </div>
+
+                    {/* Selected state inspector */}
+                    {sel != null && cur[sel] && (
+                        <div style={{ maxWidth: 800, margin: "0 auto 8px", padding: "12px 14px", background: C.surfaceAlt, borderRadius: 9, border: `1px solid ${C.border}` }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: C.yellow, marginBottom: 6, fontFamily: "'JetBrains Mono',monospace" }}>
+                                STATE {sel === 0 ? "t₀" : cur[sel].isClone ? `${sel}'` : sel} — EQUIVALENCE CLASS
+                            </div>
+                            {(() => {
+                                const subs = getSubs(cur, ep, sel, str);
+                                const eps = [...ep[sel]].sort((a, b) => a - b);
+                                const st = cur[sel];
+                                const mn = st.link >= 0 ? cur[st.link].len + 1 : (sel === 0 ? 0 : 1);
+                                return (
+                                    <>
+                                        <div style={{ fontSize: 10, color: C.dim, marginBottom: 6 }}>Lengths [{mn}..{st.len}] · endpos {`{${eps.join(",")}}`} · link → {st.link < 0 ? "none" : st.link === 0 ? "t₀" : st.link}{st.isClone ? " · CLONE" : ""}</div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                            {subs.map((sub, i) => (
+                                                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }}>
+                                                    <span style={{ color: C.accent, fontWeight: 700, minWidth: 90, textAlign: "right" }}>"{sub.t}"</span>
+                                                    <span style={{ fontSize: 9, color: C.dim }}>len={sub.l}</span>
+                                                    <span style={{ fontSize: 9, color: C.green }}>ends@{`{${eps.join(",")}}`}</span>
+                                                    <span style={{ fontSize: 9, color: C.orange }}>starts@{`{${eps.map(e => e - sub.l + 1 + 1).join(",")}}`}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {subs.length > 1 && (
+                                            <div style={{ marginTop: 8, padding: "6px 10px", background: C.greenBg, borderRadius: 5, border: `1px solid rgba(0,232,157,0.12)`, fontSize: 10, color: C.green, lineHeight: 1.5 }}>
+                                                ✓ All {subs.length} substrings share identical endpos {`{${eps.join(",")}}`} → same earliest occurrence for any pattern matching into this state.
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    )}
+
+                    {/* Compact table */}
+                    <div style={{ maxWidth: 800, margin: "0 auto", overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, fontFamily: "'JetBrains Mono',monospace" }}>
+                            <thead>
+                                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                                    {["St", "Len", "Link", "Trans", "Endpos", "Substrings"].map(h => (
+                                        <th key={h} style={{ padding: "4px 7px", textAlign: "left", color: C.dim, fontWeight: 600, fontSize: 8, textTransform: "uppercase" }}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {cur.map(st => {
+                                    const hl = hlOf(st.id);
+                                    const eps = [...ep[st.id]].sort((a, b) => a - b);
+                                    const subs = getSubs(cur, ep, st.id, str);
+                                    return (
+                                        <tr key={st.id} onClick={() => setSel(sel === st.id ? null : st.id)} style={{ cursor: "pointer", background: sel === st.id ? C.yellowBg : "transparent", borderBottom: `1px solid ${C.border}11` }}>
+                                            <td style={{ padding: "3px 7px", fontWeight: 700, color: hl ? phaseCol[s.phase] : C.text }}>{st.id === 0 ? "t₀" : st.isClone ? `${st.id}'` : st.id}</td>
+                                            <td style={{ padding: "3px 7px" }}>{st.len}</td>
+                                            <td style={{ padding: "3px 7px", color: st.link < 0 ? C.dim : C.text }}>{st.link < 0 ? "—" : st.link === 0 ? "t₀" : st.link}</td>
+                                            <td style={{ padding: "3px 7px" }}>{Object.entries(st.trans).map(([ch, to]) => <span key={ch} style={{ marginRight: 6 }}><span style={{ color: C.accent }}>{ch}</span>→{to === 0 ? "t₀" : to}</span>)}{Object.keys(st.trans).length === 0 && <span style={{ color: C.dim }}>—</span>}</td>
+                                            <td style={{ padding: "3px 7px", color: C.green }}>{`{${eps.join(",")}}`}</td>
+                                            <td style={{ padding: "3px 7px", color: C.dim }}>{subs.map(s => s.t).join(", ")}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        function Btn({ onClick, off, children }) {
+            return <button onClick={onClick} disabled={off} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: off ? C.bg : C.surface, color: off ? C.dim : C.text, cursor: off ? "default" : "pointer", fontSize: 13, fontWeight: 600, opacity: off ? 0.4 : 1 }}>{children}</button>;
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById("root"));
+        root.render(<SAMTrapezoid />);
+    </script>
+</body>
+</html>
