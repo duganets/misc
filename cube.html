@@ -1,0 +1,947 @@
+<meta charset="utf-8">
+<!--
+  Школа кубика Рубіка — інтерактивний посібник (українською).
+  Один самодостатній файл: ізометричний low-poly рендер на canvas 2D, без залежностей.
+  Файл навмисно без <!DOCTYPE>/<html>/<head>/<body> — браузер добудовує обгортку сам,
+  і той самий файл публікується як Claude Artifact без змін.
+  Типографіка: Tahoma/Verdana — свідомий вибір під естетику симуляторів кінця 90-х (RCT).
+-->
+<title>Школа кубика Рубіка</title>
+<style>
+/* ============ S1. Токени (світла тема — «день у парку») ============ */
+:root, #cube-app {
+  --sky:        #AECFE3;
+  --sky-hi:     #C9E2F1;
+  --panel:      #D8C69B;
+  --panel-hi:   #ECDDB6;
+  --panel-lo:   #B29D6E;
+  --ink:        #3A2E1C;
+  --ink-soft:   #6E5D3E;
+  --accent:     #3E8E4C;
+  --accent-hi:  #5CAC69;
+  --accent-ink: #F4F0DC;
+  --chip:       #F0E6C6;
+  --chip-done:  #C7BA95;
+  --chip-cur:   #F6D465;
+  --titlebar:   #4A3A22;
+  --titlebar-ink:#EBDDB8;
+  --shadow:     rgba(46,34,16,.30);
+  /* canvas world colors */
+  --cv-sky:     #AED2E8;
+  --cv-sky-lo:  #8FBBD8;
+  --cv-body:    #262019;
+  --cv-grass1:  #6FA84F;
+  --cv-grass2:  #648F45;
+  --cv-dirt:    #8A6B42;
+  --cv-dirt-lo: #6E5433;
+  --font-ui: Tahoma, Verdana, "Segoe UI", system-ui, sans-serif;
+  --font-mono: Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+/* ============ S2. Темна тема — «нічний парк» ============ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]), :root:not([data-theme="light"]) #cube-app {
+    --sky:#141B2A; --sky-hi:#1C2840;
+    --panel:#332B1E; --panel-hi:#463A28; --panel-lo:#211B11;
+    --ink:#EADFC2; --ink-soft:#B2A483;
+    --accent:#4E9E5C; --accent-hi:#66B673; --accent-ink:#0F2417;
+    --chip:#453B28; --chip-done:#332C1D; --chip-cur:#C89B3C;
+    --titlebar:#0E1420; --titlebar-ink:#D8C69B;
+    --shadow:rgba(0,0,0,.5);
+    --cv-sky:#16202f; --cv-sky-lo:#101827;
+    --cv-body:#15110d;
+    --cv-grass1:#3E6B33; --cv-grass2:#365C2C;
+    --cv-dirt:#4E3C25; --cv-dirt-lo:#3A2C1a;
+  }
+}
+:root[data-theme="dark"], [data-theme="dark"], [data-theme="dark"] #cube-app {
+  --sky:#141B2A; --sky-hi:#1C2840;
+  --panel:#332B1E; --panel-hi:#463A28; --panel-lo:#211B11;
+  --ink:#EADFC2; --ink-soft:#B2A483;
+  --accent:#4E9E5C; --accent-hi:#66B673; --accent-ink:#0F2417;
+  --chip:#453B28; --chip-done:#332C1D; --chip-cur:#C89B3C;
+  --titlebar:#0E1420; --titlebar-ink:#D8C69B;
+  --shadow:rgba(0,0,0,.5);
+  --cv-sky:#16202f; --cv-sky-lo:#101827;
+  --cv-body:#15110d;
+  --cv-grass1:#3E6B33; --cv-grass2:#365C2C;
+  --cv-dirt:#4E3C25; --cv-dirt-lo:#3A2C1a;
+}
+/* ============ S3. Каркас ============ */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--sky);
+  background-image: linear-gradient(var(--sky-hi), var(--sky));
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.65;
+}
+#cube-app { min-height: 100dvh; display: flex; flex-direction: column; }
+.marquee {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 8px 16px;
+  background: var(--titlebar); color: var(--titlebar-ink);
+  border-bottom: 2px solid var(--ink);
+}
+.marquee h1 {
+  margin: 0; font-size: 15px; letter-spacing: .09em; text-transform: uppercase;
+  font-weight: bold;
+}
+.marquee .tag { font-size: 12px; opacity: .8; letter-spacing: .03em; }
+main {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: minmax(0,58fr) minmax(0,42fr);
+  gap: 14px; padding: 14px;
+  max-width: 1280px; width: 100%; margin: 0 auto;
+}
+/* ============ S4. Панелі в стилі RCT ============ */
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  box-shadow: inset 2px 2px 0 var(--panel-hi), inset -2px -2px 0 var(--panel-lo),
+              4px 4px 0 var(--shadow);
+}
+.stage { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+.viewport {
+  position: relative; flex: 1; min-height: 260px; overflow: hidden;
+  border: 2px solid var(--ink); border-radius: 3px;
+  box-shadow: inset 0 0 0 2px var(--sky-hi), 4px 4px 0 var(--shadow);
+  background: var(--cv-sky);
+}
+.viewport canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.notation {
+  display: flex; gap: 6px; align-items: center;
+  overflow-x: auto; padding: 8px; scrollbar-width: thin;
+}
+.chip {
+  font-family: var(--font-mono); font-weight: bold; font-size: 14px;
+  color: var(--ink);
+  min-width: 36px; padding: 4px 7px; text-align: center; flex: 0 0 auto;
+  background: var(--chip); border: 2px solid var(--ink); border-radius: 3px;
+  box-shadow: inset 1px 1px 0 var(--panel-hi), 2px 2px 0 var(--shadow);
+  cursor: pointer; user-select: none;
+}
+.chip.done { background: var(--chip-done); color: var(--ink-soft); box-shadow: none; }
+.chip.cur  { background: var(--chip-cur); color: #33260C; transform: translateY(-1px); }
+.chip:focus-visible { outline: 2px dashed var(--ink); outline-offset: 2px; }
+.caption {
+  min-height: 3.2em; padding: 8px 12px; font-size: 14px;
+  display: flex; align-items: center;
+}
+.caption b { color: var(--accent); }
+.transport {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px;
+}
+.btn {
+  font-family: var(--font-ui); font-weight: bold; font-size: 14px; color: var(--ink);
+  background: var(--panel); border: 2px solid var(--ink); border-radius: 3px;
+  box-shadow: inset 2px 2px 0 var(--panel-hi), inset -2px -2px 0 var(--panel-lo),
+              2px 2px 0 var(--shadow);
+  padding: 8px 10px; min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer;
+}
+.btn svg { width: 18px; height: 18px; display: block; }
+.btn:active, .btn[aria-pressed="true"] {
+  box-shadow: inset -2px -2px 0 var(--panel-hi), inset 2px 2px 0 var(--panel-lo);
+  transform: translate(1px,1px);
+}
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:focus-visible { outline: 2px dashed var(--ink); outline-offset: 2px; }
+.btn-play { background: var(--accent); color: var(--accent-ink); }
+.btn-play:hover:not(:disabled) { background: var(--accent-hi); }
+.stepnum { margin-left: auto; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+select {
+  font-family: var(--font-ui); font-weight: bold; font-size: 13px; color: var(--ink);
+  background: var(--chip); border: 2px solid var(--ink); border-radius: 3px;
+  padding: 6px 8px; min-height: 40px; max-width: 100%;
+}
+select:focus-visible { outline: 2px dashed var(--ink); outline-offset: 2px; }
+/* ============ S5. Панель уроку ============ */
+.lesson { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.lesson-titlebar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--titlebar); color: var(--titlebar-ink);
+  padding: 8px 12px; border-bottom: 2px solid var(--ink);
+  border-radius: 1px 1px 0 0;
+}
+.lesson-titlebar .kicker { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; opacity: .75; white-space: nowrap; }
+.lesson-body { overflow-y: auto; flex: 1; padding: 14px 18px; }
+.lesson-body h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.3; text-wrap: balance; }
+.lesson-body p { margin: 0 0 12px; max-width: 62ch; }
+.lesson-body p:last-child { margin-bottom: 0; }
+.mv {
+  font-family: var(--font-mono); font-weight: bold; font-size: .88em;
+  background: var(--chip); border: 1px solid var(--ink); border-radius: 2px;
+  padding: 0 4px; white-space: nowrap;
+}
+.alg {
+  font-family: var(--font-mono); font-weight: bold; font-size: 16px; letter-spacing: .05em;
+  text-align: center; padding: 10px 8px; margin: 0 0 12px;
+  background: var(--chip); border: 2px solid var(--ink); border-radius: 3px;
+  box-shadow: inset 1px 1px 0 var(--panel-hi), 2px 2px 0 var(--shadow);
+  overflow-x: auto; white-space: nowrap;
+}
+.tip, .warn {
+  border: 2px solid var(--ink); border-radius: 3px;
+  background: var(--panel-hi); padding: 10px 12px; margin: 0 0 12px;
+  box-shadow: 2px 2px 0 var(--shadow); font-size: 14px; max-width: 62ch;
+}
+.tip strong, .warn strong { text-transform: uppercase; letter-spacing: .07em; font-size: 12px; display: block; margin-bottom: 2px; }
+.warn strong { color: #A03A28; }
+[data-theme="dark"] .warn strong { color: #E08060; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .warn strong { color: #E08060; } }
+.lesson-nav {
+  display: flex; gap: 8px; padding: 10px 12px; align-items: center;
+  border-top: 2px solid var(--panel-lo);
+}
+.lesson-nav .btn { flex: 0 0 auto; }
+.lesson-nav select { flex: 1 1 auto; min-width: 0; }
+/* ============ S6. Малі екрани ============ */
+@media (max-width: 719px) {
+  main { display: flex; flex-direction: column; padding: 10px; gap: 10px; }
+  .stage {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--sky); padding: 6px; margin: -6px;
+    border-radius: 4px;
+  }
+  .viewport { flex: none; height: 38dvh; min-height: 200px; }
+  .lesson { min-height: 0; }
+  .lesson-body { overflow-y: visible; }
+  .marquee { padding: 6px 12px; }
+  .stepnum { flex-basis: 100%; margin-left: 0; text-align: right; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip.cur { transform: none; }
+}
+</style>
+
+<div id="cube-app">
+  <header class="marquee">
+    <h1>Школа кубика Рубіка</h1>
+    <span class="tag">сім кроків до зібраного кубика — просто натискайте ▶ і дивіться</span>
+  </header>
+  <main>
+    <section class="stage" aria-label="Сцена з кубиком">
+      <div class="viewport"><canvas id="cv"></canvas></div>
+      <div class="notation panel" id="notation" aria-label="Послідовність поворотів"></div>
+      <div class="caption panel" id="caption" aria-live="polite"></div>
+      <div class="transport panel">
+        <button class="btn" id="btnRestart" aria-label="Спочатку" title="Спочатку">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.3 4" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M5 3v6h6z" fill="currentColor"/></svg>
+        </button>
+        <button class="btn" id="btnBack" aria-label="Крок назад" title="Крок назад (←)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14" stroke="currentColor" stroke-width="2.6"/><path d="M19 5 9 12l10 7z" fill="currentColor"/></svg>
+        </button>
+        <button class="btn btn-play" id="btnPlay" aria-label="Пуск">
+          <svg viewBox="0 0 24 24" aria-hidden="true" id="icoPlay"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" id="icoPause" style="display:none"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg>
+        </button>
+        <button class="btn" id="btnFwd" aria-label="Крок уперед" title="Крок уперед (→)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5v14" stroke="currentColor" stroke-width="2.6"/><path d="M5 5l10 7-10 7z" fill="currentColor"/></svg>
+        </button>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:bold;">
+          Швидкість
+          <select id="speed" aria-label="Швидкість анімації">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+        <span class="stepnum" id="stepnum"></span>
+      </div>
+    </section>
+    <section class="lesson panel" aria-label="Урок">
+      <div class="lesson-titlebar">
+        <span class="kicker" id="kicker"></span>
+      </div>
+      <div class="lesson-body" id="lessonBody"></div>
+      <div class="lesson-nav">
+        <button class="btn" id="btnPrev">◀ Назад</button>
+        <select id="chapSel" aria-label="Вибрати розділ"></select>
+        <button class="btn" id="btnNext">Далі ▶</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+'use strict';
+/* ============ J1. Константи ============ */
+// Світ: +X=право(помаранч.), -X=ліво(черв.), +Y=верх(жовт.), -Y=низ(біл.), +Z=перед(зел.), -Z=зад(син.)
+const STICKER_RGB = {
+  O:[224,123,46], R:[194,67,52], Y:[240,194,74], W:[237,231,213], G:[78,158,78], B:[62,110,176],
+};
+const HOME_COLOR = {px:'O', nx:'R', py:'Y', ny:'W', pz:'G', nz:'B'};
+const DIRS = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const LIGHT = norm3([-0.45, 0.85, 0.55]);
+
+/* ============ J2. Математика ============ */
+const I3 = [1,0,0, 0,1,0, 0,0,1];
+function mul3(A,B){const C=new Array(9);for(let r=0;r<3;r++)for(let c=0;c<3;c++){let s=0;for(let k=0;k<3;k++)s+=A[r*3+k]*B[k*3+c];C[r*3+c]=s;}return C;}
+function mulv(A,v){return [A[0]*v[0]+A[1]*v[1]+A[2]*v[2], A[3]*v[0]+A[4]*v[1]+A[5]*v[2], A[6]*v[0]+A[7]*v[1]+A[8]*v[2]];}
+function tr3(A){return [A[0],A[3],A[6], A[1],A[4],A[7], A[2],A[5],A[8]];}
+function norm3(v){const l=Math.hypot(v[0],v[1],v[2]);return [v[0]/l,v[1]/l,v[2]/l];}
+function dot3(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+// цілочисельна матриця повороту на q чвертей навколо осі (0=x,1=y,2=z), правило правої руки
+function rotQ(axis,q){
+  q=((q%4)+4)%4;
+  const c=[1,0,-1,0][q], s=[0,1,0,-1][q];
+  if(axis===0) return [1,0,0, 0,c,-s, 0,s,c];
+  if(axis===1) return [c,0,s, 0,1,0, -s,0,c];
+  return [c,-s,0, s,c,0, 0,0,1];
+}
+// дробовий поворот для анімації (та сама конвенція, що й rotQ)
+function rotA(axis,ang){
+  const c=Math.cos(ang), s=Math.sin(ang);
+  if(axis===0) return [1,0,0, 0,c,-s, 0,s,c];
+  if(axis===1) return [c,0,s, 0,1,0, -s,0,c];
+  return [c,-s,0, s,c,0, 0,0,1];
+}
+
+/* ============ J3. Модель кубика ============ */
+function newSolved(){
+  const cs=[];
+  for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){
+    if(x===0&&y===0&&z===0)continue;
+    cs.push({home:[x,y,z], rot:I3.slice()});
+  }
+  return cs;
+}
+function cloneState(st){return st.map(c=>({home:c.home.slice(), rot:c.rot.slice()}));}
+function posOf(c){return mulv(c.rot, c.home);}
+const MOVES = {
+  R:{axis:0,layer: 1,dir:-1}, L:{axis:0,layer:-1,dir: 1},
+  U:{axis:1,layer: 1,dir:-1}, D:{axis:1,layer:-1,dir: 1},
+  F:{axis:2,layer: 1,dir:-1}, B:{axis:2,layer:-1,dir: 1},
+  x:{axis:0,layer:null,dir:-1}, y:{axis:1,layer:null,dir:-1}, z:{axis:2,layer:null,dir:-1},
+};
+function parseMove(m){
+  const spec=MOVES[m[0]]; if(!spec) throw new Error('bad move '+m);
+  const suf=m.slice(1);
+  const quarters = suf==='2' ? 2 : 1;
+  const sign = suf==="'" ? -spec.dir : spec.dir;
+  return {axis:spec.axis, layer:spec.layer, q:sign*quarters, quarters, whole:spec.layer===null};
+}
+function applyMove(st,m){
+  const {axis,layer,q}=parseMove(m);
+  const M=rotQ(axis,q);
+  for(const c of st){
+    const p=posOf(c);
+    if(layer===null || p[axis]===layer) c.rot=mul3(M,c.rot);
+  }
+  return st;
+}
+function applyMoves(st,seq){for(const m of seq)applyMove(st,m);return st;}
+function invertMoves(seq){return seq.slice().reverse().map(m=> m.endsWith('2') ? m : (m.endsWith("'") ? m[0] : m+"'"));}
+function isSolved(st){return st.every(c=>c.rot.every((v,i)=>v===I3[i]));}
+function prettyMove(m){return m.replace("'", '′');}
+
+/* ============ J7. Розділи (дані уроків) ============ */
+// Демо розділів 1–7 — один неперервний сценарій збирання: кінець розділу k = початок k+1.
+// Кожна послідовність перевірена симулятором (див. verifyChapters нижче).
+const sexy = ['R','U',"R'","U'"];
+function reps(seq,n){const out=[];for(let i=0;i<n;i++)out.push(...seq);return out;}
+function D(moves,caps){ // caps: {index: caption}
+  return moves.map((m,i)=>({m, cap:caps&&caps[i]!==undefined?caps[i]:null}));
+}
+
+const CHAPTERS = [
+{
+  id:'intro', independent:true,
+  title:'Знайомство з кубиком і мовою поворотів',
+  html:
+  '<h2>Знайомство з кубиком і мовою поворотів</h2>'+
+  '<p>Кубик Рубіка винайшов 1974 року угорський викладач архітектури <b>Ерне Рубік</b>. '+
+  'У кубика 43 252 003 274 489 856 000 можливих станів (43 квінтильйони!), але будь-який з них можна '+
+  'зібрати не більш ніж за 20 поворотів — це доведене «число Бога».</p>'+
+  '<p>Кубик складається з 26 видимих елементів: <b>6 центрів</b> (вони не рухаються один відносно одного '+
+  'і визначають колір грані), <b>12 ребер</b> (по дві наклейки) та <b>8 кутів</b> (по три наклейки). '+
+  'Кольори розташовані парами: білий навпроти жовтого, зелений навпроти синього, червоний навпроти помаранчевого.</p>'+
+  '<p>Повороти записують латинськими літерами — за назвами граней: '+
+  '<span class="mv">U</span> верхня, <span class="mv">D</span> нижня, <span class="mv">L</span> ліва, '+
+  '<span class="mv">R</span> права, <span class="mv">F</span> передня, <span class="mv">B</span> задня. '+
+  'Літера без позначки — поворот грані на 90° <b>за годинниковою стрілкою, якщо дивитися прямо на цю грань</b>. '+
+  'Штрих (<span class="mv">R&#8242;</span>) — проти годинникової стрілки. Двійка (<span class="mv">U2</span>) — на 180°. '+
+  'Мала літера <span class="mv">y</span> — поворот усього кубика.</p>'+
+  '<div class="tip"><strong>Порада</strong>Увесь посібник ми тримаємо кубик <b>жовтим центром догори</b>, '+
+  'зеленим до себе. Натисніть ▶ — і подивіться, як виглядає кожен поворот.</div>',
+  demo: D(
+    ['F',"F'",'R',"R'",'U',"U'",'L',"L'",'D',"D'",'B',"B'",'U2','U2','y',"y'"],
+    {0:'F — передня грань за годинниковою стрілкою.',
+     1:'F′ — та сама грань, але проти годинникової стрілки.',
+     2:'R — права грань (за стрілкою, якщо дивитися на неї справа).',
+     3:'R′ — і назад.',
+     4:'U — верхній шар за годинниковою стрілкою (дивимося згори).',
+     5:'U′ — верхній шар назад.',
+     6:'L — ліва грань.', 7:'L′ — назад.',
+     8:'D — нижній шар.', 9:'D′ — назад.',
+     10:'B — задня грань.', 11:'B′ — назад.',
+     12:'U2 — пів-оберту, одразу на 180°.',
+     13:'Ще раз U2 — і все повернулося.',
+     14:'y — обертаємо ВЕСЬ кубик, жодна деталь не зсувається.',
+     15:'y′ — повернули назад. Тепер до діла!'})
+},
+{
+  id:'daisy',
+  title:'Крок 1. Ромашка і білий хрест',
+  html:
+  '<h2>Крок 1. Ромашка і білий хрест</h2>'+
+  '<p>Перший крок — інтуїтивний, без формул. Тримаючи кубик <b>жовтим центром догори</b>, зберіть «ромашку»: '+
+  'чотири ребра з білою наклейкою поставте навколо жовтого центра білим догори. '+
+  'Просто виводьте білі ребра нагору так, щоб не вибивати вже поставлені «пелюстки».</p>'+
+  '<p>Далі кожну пелюстку відправляємо вниз: крутіть верхній шар (<span class="mv">U</span>), доки '+
+  '<b>бічна</b> наклейка пелюстки не збіжиться кольором із центром під нею, і поверніть цю грань на 180°. '+
+  'Пелюстка опуститься донизу білим кольором. Коли всі чотири будуть внизу — знизу зʼявиться '+
+  '<b>білий хрест</b>, а бічні кольори ребер збігатимуться з центрами.</p>'+
+  '<div class="tip"><strong>Порада</strong>У нашій демонстрації ромашка вже зібрана — '+
+  'подивіться, як пелюстки одна за одною їдуть униз.</div>',
+  demo: D(['F2','U','R2','U2','B2','U','L2'],
+    {0:'Бічна наклейка пелюстки збіглася із зеленим центром — F2 опускає її вниз.',
+     1:'Крутимо верхній шар: шукаємо збіг для наступної пелюстки.',
+     2:'Збіг праворуч — R2, пелюстка внизу.',
+     3:'U2 — підводимо наступну пелюстку до її центра.',
+     4:'B2 — третя пелюстка опустилася.',
+     5:'Останнє вирівнювання…',
+     6:'L2 — готово: знизу білий хрест, бічні кольори збігаються!'})
+},
+{
+  id:'corners1',
+  title:'Крок 2. Білі кути — перший шар',
+  html:
+  '<h2>Крок 2. Білі кути — перший шар</h2>'+
+  '<div class="alg">R U R&#8242; U&#8242;</div>'+
+  '<p>Знайдіть у верхньому шарі кут із білою наклейкою. Подивіться на два інші його кольори '+
+  'і поставте кут (поворотами <span class="mv">U</span>) <b>прямо над його місцем</b> — між центрами тих самих кольорів. '+
+  'Тримайте це місце <b>спереду-праворуч</b> і повторюйте звʼязку <span class="mv">R</span> <span class="mv">U</span> '+
+  '<span class="mv">R&#8242;</span> <span class="mv">U&#8242;</span>, доки кут не стане на місце білим донизу.</p>'+
+  '<p>Повторів буде щонайбільше пʼять: рівно 5, якщо біла наклейка дивиться вперед; 3 — якщо вгору; '+
+  '1 — якщо праворуч. Щоб узятися за наступний кут, поверніть весь кубик (<span class="mv">y</span>).</p>'+
+  '<div class="tip"><strong>Порада</strong>Якщо білий кут застряг унизу не на своєму місці або перекручений — '+
+  'потримайте його спереду-праворуч і зробіть звʼязку один раз: він вискочить нагору, і далі за правилом. '+
+  'У демонстрації два кути вже стоять, доставимо решту.</div>',
+  demo: D([...reps(sexy,3),'y',...reps(sexy,5),"y'"],
+    {0:'Кут стоїть над своїм місцем. Повторюємо R U R′ U′ — раз…',
+     4:'…два…',
+     8:'…три — кут упав на місце білим донизу!',
+     12:'y — повертаємо кубик: наступний кут тепер спереду-праворуч.',
+     13:'Знову R U R′ U′ — раз…',
+     17:'…два…', 21:'…три…', 25:'…чотири…',
+     29:'…пʼять — став! Білий шар зібрано.',
+     33:'y′ — повертаємо кубик назад.'})
+},
+{
+  id:'middle',
+  title:'Крок 3. Ребра середнього шару',
+  html:
+  '<h2>Крок 3. Ребра середнього шару</h2>'+
+  '<div class="alg">U R U&#8242; R&#8242; U&#8242; F&#8242; U F &nbsp;&nbsp;/&nbsp;&nbsp; U&#8242; L&#8242; U L U F U&#8242; F&#8242;</div>'+
+  '<p>Знайдіть у верхньому шарі ребро <b>без жовтої наклейки</b>. Крутіть верхній шар, доки його передня наклейка '+
+  'не збіжиться з переднім центром — вийде перевернута літера «Т». Тепер погляньте на <b>верхню</b> наклейку ребра:</p>'+
+  '<p>— збігається з центром <b>праворуч</b> → виконуйте <span class="mv">U</span> <span class="mv">R</span> '+
+  '<span class="mv">U&#8242;</span> <span class="mv">R&#8242;</span> <span class="mv">U&#8242;</span> <span class="mv">F&#8242;</span> '+
+  '<span class="mv">U</span> <span class="mv">F</span>;<br>'+
+  '— збігається з центром <b>ліворуч</b> → дзеркальний варіант: <span class="mv">U&#8242;</span> <span class="mv">L&#8242;</span> '+
+  '<span class="mv">U</span> <span class="mv">L</span> <span class="mv">U</span> <span class="mv">F</span> '+
+  '<span class="mv">U&#8242;</span> <span class="mv">F&#8242;</span>.</p>'+
+  '<div class="tip"><strong>Порада</strong>Ребро сидить у середньому шарі неправильно? Вставте на його місце '+
+  'будь-яке верхнє ребро тим самим алгоритмом — воно вискочить нагору, і тоді ставте як завжди.</div>',
+  demo: D(['U','R',"U'","R'","U'","F'",'U','F',"U'","L'",'U','L','U','F',"U'","F'"],
+    {0:'Верхня наклейка збігається з ПРАВИМ центром: U R U′ R′ U′ F′ U F.',
+     5:'…друга половина алгоритму…',
+     7:'Ребро сіло у правий слот!',
+     8:'Тепер ребро для ЛІВОГО слота: U′ L′ U L U F U′ F′.',
+     13:'…і друга половина…',
+     15:'Середній шар зібрано — залишився верхній!'})
+},
+{
+  id:'ycross',
+  title:'Крок 4. Жовтий хрест',
+  html:
+  '<h2>Крок 4. Жовтий хрест</h2>'+
+  '<div class="alg">F R U R&#8242; U&#8242; F&#8242;</div>'+
+  '<p>Дивимося лише на жовті наклейки ребер зверху. Можливі стани: <b>крапка</b> → фігура <b>«Г»</b> → '+
+  '<b>лінія</b> → <b>хрест</b>. Один і той самий алгоритм переводить стан у наступний.</p>'+
+  '<p><b>Як тримати — важливо!</b> Фігуру «Г» — так, щоб її промені дивилися <b>назад і вліво</b>. '+
+  'Лінію — <b>горизонтально</b> (зліва направо). З крапки алгоритм доведеться зробити щонайбільше тричі, '+
+  'щоразу перехоплюючи кубик правильно.</p>'+
+  '<div class="warn"><strong>Увага</strong>Якщо тримати неправильно, кроку вперед не буде: '+
+  'вертикальна лінія повертається назад у крапку, а неправильно повернена «Г» так і лишиться «Г».</div>',
+  demo: D(['F','R','U',"R'","U'","F'",'F','R','U',"R'","U'","F'"],
+    {0:'Фігура «Г» дивиться назад і вліво — виконуємо F R U R′ U′ F′.',
+     5:'…стала лінія!',
+     6:'Лінія лежить горизонтально — повторюємо алгоритм ще раз.',
+     11:'Жовтий хрест готовий!'})
+},
+{
+  id:'yedges',
+  title:'Крок 5. Жовті ребра — по місцях',
+  html:
+  '<h2>Крок 5. Жовті ребра — по місцях</h2>'+
+  '<div class="alg">R U R&#8242; U R U2 R&#8242; U</div>'+
+  '<p>Хрест є, але бічні кольори ребер ще не збігаються з центрами. Крутіть верхній шар і знайдіть положення, '+
+  'де <b>два сусідні</b> ребра стають на свої місця. Поверніть кубик так, щоб ці два ребра були '+
+  '<b>ззаду і праворуч</b>, і виконайте алгоритм — переднє і ліве ребра акуратно поміняються місцями.</p>'+
+  '<p>Якщо збігаються лише два <b>протилежні</b> ребра — виконайте алгоритм один раз із будь-якого боку, '+
+  'потім знову вирівняйте верхній шар і зробіть як для сусідніх.</p>',
+  demo: D(['R','U',"R'",'U','R','U2',"R'",'U'],
+    {0:'Ребра ззаду і праворуч уже на місцях — виконуємо R U R′ U R U2 R′ U.',
+     7:'Фінальний U — усі ребра хреста по місцях!'})
+},
+{
+  id:'ycorners',
+  title:'Крок 6. Жовті кути — по місцях',
+  html:
+  '<h2>Крок 6. Жовті кути — по місцях</h2>'+
+  '<div class="alg">U R U&#8242; L&#8242; U R&#8242; U&#8242; L</div>'+
+  '<p>Тепер розставимо кути, поки що не зважаючи на те, як вони повернені. Кут стоїть «на своєму місці», '+
+  'якщо його три кольори — ті самі, що в трьох граней навколо нього (нехай і перекручені).</p>'+
+  '<p>Знайдіть такий кут і тримайте його <b>спереду-праворуч</b>; виконуйте алгоритм — інші три кути '+
+  'циклічно переставляться, а ребра не зрушать. Щонайбільше два повтори. '+
+  'Якщо жоден кут не на місці — зробіть алгоритм один раз із будь-якого боку: один кут стане.</p>',
+  demo: D(['U','R',"U'","L'",'U',"R'","U'",'L'],
+    {0:'Кут спереду-праворуч уже на місці — тримаємо його і виконуємо U R U′ L′ U R′ U′ L.',
+     7:'Усі кути на своїх місцях (нехай і перекручені) — лишився останній крок!'})
+},
+{
+  id:'orient',
+  title:'Крок 7. Орієнтуємо кути — фініш',
+  html:
+  '<h2>Крок 7. Орієнтуємо кути — фініш</h2>'+
+  '<div class="alg">R&#8242; D&#8242; R D &nbsp;(&#215;2 або &#215;4)</div>'+
+  '<p>Тримайте кубик жовтим догори, а перекручений кут — <b>спереду-праворуч</b>. Повторюйте '+
+  '<span class="mv">R&#8242;</span> <span class="mv">D&#8242;</span> <span class="mv">R</span> <span class="mv">D</span>, '+
+  'доки жовта наклейка кута не опиниться зверху (це рівно 2 або 4 повтори). Потім поверніть '+
+  '<b>лише верхній шар</b> (<span class="mv">U</span>), щоб підвести наступний перекручений кут '+
+  'на те саме місце спереду-праворуч, і повторіть.</p>'+
+  '<div class="warn"><strong>Увага</strong>Під час цього кроку нижні шари виглядатимуть зіпсованими. '+
+  'Це нормально! Не перехоплюйте кубик і не «рятуйте» його — коли всі кути буде повернено, '+
+  'все відновиться само собою.</div>'+
+  '<p>Наприкінці вирівняйте верхній шар — і кубик зібрано. Вітаємо!</p>',
+  demo: D([
+    "R'","D'",'R','D', "R'","D'",'R','D', "R'","D'",'R','D', "R'","D'",'R','D',
+    'U',
+    "R'","D'",'R','D', "R'","D'",'R','D',
+    "U'"
+  ],
+  {0:'Кут спереду-праворуч перекручений. Повторюємо R′ D′ R D — раз…',
+   4:'…два… (низ «псується» — не звертайте уваги!)',
+   8:'…три…',
+   12:'…чотири — жовтий цього кута дивиться вгору!',
+   16:'Поворотом U підводимо наступний перекручений кут. Низ не чіпаємо!',
+   17:'Знову R′ D′ R D — раз…',
+   21:'…два — жовтий зверху!',
+   25:'Останній поворот U′ — КУБИК ЗІБРАНО. Вітаємо!'})
+}
+];
+
+// стартові стани: розділ 0 — зібраний кубик; 1–7 — ланцюжок обернених демо від зібраного
+function computeStarts(){
+  const starts=new Array(CHAPTERS.length);
+  starts[0]=newSolved();
+  let cur=newSolved();
+  for(let k=CHAPTERS.length-1;k>=1;k--){
+    cur=applyMoves(cloneState(cur), invertMoves(CHAPTERS[k].demo.map(s=>s.m)));
+    starts[k]=cur;
+  }
+  return starts;
+}
+function verifyChapters(starts){
+  let s=cloneState(starts[1]);
+  for(let k=1;k<CHAPTERS.length;k++) applyMoves(s, CHAPTERS[k].demo.map(x=>x.m));
+  if(!isSolved(s)) console.warn('verifyChapters: ланцюжок розділів НЕ завершується зібраним кубиком!');
+  const s0=applyMoves(cloneState(starts[0]), CHAPTERS[0].demo.map(x=>x.m));
+  if(!isSolved(s0)) console.warn('verifyChapters: демо розділу 0 не повертається до зібраного стану!');
+}
+
+/* ============ J4. Рендерер (ізометрія 2:1, painter's algorithm) ============ */
+// V = Rx(30°)·Ry(−45°): проєкція осі X на екран має нахил рівно 1:2 (стиль RCT)
+const V0=[0.70710678,0,-0.70710678];
+const V1=[-0.35355339,0.86602540,-0.35355339];
+const V2=[0.61237244,0.5,0.61237244];
+function makeRenderer(canvas){
+  const ctx=canvas.getContext('2d');
+  let W=0,H=0,scale=40,cx=0,cy=0,dpr=1;
+  let colors={sky:'#AED2E8',skyLo:'#8FBBD8',body:'#262019',grass1:'#6FA84F',grass2:'#648F45',dirt:'#8A6B42',dirtLo:'#6E5433'};
+  const shadeCache=new Map();
+
+  function readTheme(app){
+    const cs=getComputedStyle(app);
+    const g=k=>cs.getPropertyValue(k).trim()||colors.sky;
+    colors={sky:g('--cv-sky'),skyLo:g('--cv-sky-lo'),body:g('--cv-body'),
+            grass1:g('--cv-grass1'),grass2:g('--cv-grass2'),dirt:g('--cv-dirt'),dirtLo:g('--cv-dirt-lo')};
+    shadeCache.clear();
+  }
+  function resize(){
+    const r=canvas.parentElement.getBoundingClientRect();
+    dpr=Math.min(window.devicePixelRatio||1,2.5);
+    W=Math.max(1,Math.round(r.width)); H=Math.max(1,Math.round(r.height));
+    canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    // вписуємо світ: кубик (±1.5) + земля (±2.55, глибина до -2.3)
+    const pts=[];
+    for(const x of [-2.55,2.55]) for(const y of [-2.3,1.7]) for(const z of [-2.55,2.55]) pts.push([x,y,z]);
+    let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+    for(const p of pts){
+      const sx=dot3(V0,p), sy=-dot3(V1,p);
+      if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+    }
+    const pad=14;
+    scale=Math.min((W-2*pad)/(x1-x0),(H-2*pad)/(y1-y0));
+    cx=W/2-scale*(x0+x1)/2; cy=H/2-scale*(y0+y1)/2;
+  }
+  function proj(p){return [cx+scale*dot3(V0,p), cy-scale*dot3(V1,p), dot3(V2,p)];}
+  function shaded(rgb,n){
+    const lam=Math.max(0,dot3(n,LIGHT));
+    const q=Math.round(lam*3)/3;
+    const f=0.55+0.45*q;
+    const key=rgb[0]+','+rgb[1]+','+rgb[2]+':'+q;
+    let v=shadeCache.get(key);
+    if(!v){v='rgb('+Math.round(rgb[0]*f)+','+Math.round(rgb[1]*f)+','+Math.round(rgb[2]*f)+')';shadeCache.set(key,v);}
+    return v;
+  }
+  function darker(rgb,n,k){
+    const lam=Math.max(0,dot3(n,LIGHT));
+    const f=(0.55+0.45*(Math.round(lam*3)/3))*k;
+    return 'rgb('+Math.round(rgb[0]*f)+','+Math.round(rgb[1]*f)+','+Math.round(rgb[2]*f)+')';
+  }
+  function poly(pts){
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath();
+  }
+  function hexRgb(hex){
+    const h=hex.replace('#','');
+    return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+  }
+  function drawGround(){
+    const G=-1.66, depth=0.62, ext=2.55, n=6, cell=2*ext/n;
+    // «спідниці» землі (передні зрізи тераформи)
+    const c1=[ ext,G, ext], c2=[-ext,G, ext], c3=[ ext,G,-ext];
+    const b1=[ ext,G-depth, ext], b2=[-ext,G-depth, ext], b3=[ ext,G-depth,-ext];
+    ctx.fillStyle=colors.dirt;
+    poly([proj(c2),proj(c1),proj(b1),proj(b2)].map(p=>[p[0],p[1]])); ctx.fill();
+    ctx.fillStyle=colors.dirtLo;
+    poly([proj(c1),proj(c3),proj(b3),proj(b1)].map(p=>[p[0],p[1]])); ctx.fill();
+    // трава — шахівниця
+    for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+      const x0=-ext+i*cell, z0=-ext+j*cell;
+      const q=[[x0,G,z0],[x0+cell,G,z0],[x0+cell,G,z0+cell],[x0,G,z0+cell]].map(proj).map(p=>[p[0],p[1]]);
+      ctx.fillStyle=((i+j)%2===0)?colors.grass1:colors.grass2;
+      poly(q); ctx.fill();
+    }
+    // тінь під кубиком
+    const s=1.62;
+    const sh=[[s,G+0.02,s],[-s,G+0.02,s],[-s,G+0.02,-s],[s,G+0.02,-s]].map(proj).map(p=>[p[0],p[1]]);
+    ctx.fillStyle='rgba(10,20,8,0.22)';
+    poly(sh); ctx.fill();
+  }
+  // draw(state, anim): anim = {axis, layer|null, angle} або null
+  function draw(state,anim){
+    ctx.clearRect(0,0,W,H);
+    const skyGrad=ctx.createLinearGradient(0,0,0,H);
+    skyGrad.addColorStop(0,colors.sky); skyGrad.addColorStop(1,colors.skyLo);
+    ctx.fillStyle=skyGrad; ctx.fillRect(0,0,W,H);
+    drawGround();
+    const bodyRgb=hexRgb(colors.body.startsWith('#')?colors.body:'#262019');
+    const Rf=anim?rotA(anim.axis,anim.angle):null;
+    const faces=[];
+    const S=0.46, INSET=0.80;
+    for(const c of state){
+      const p=posOf(c);
+      const sel=anim && (anim.layer===null || p[anim.axis]===anim.layer);
+      const rT=tr3(c.rot);
+      for(const d of DIRS){
+        // колір наклейки з ЗАФІКСОВАНОГО стану (цілі числа), геометрія — з анімацією
+        const local=mulv(rT,d);
+        const k=(local[0]===1?'px':local[0]===-1?'nx':local[1]===1?'py':local[1]===-1?'ny':local[2]===1?'pz':'nz');
+        const ax=(k[1]==='x'?0:k[1]==='y'?1:2), sgn=(k[0]==='p'?1:-1);
+        const hasSticker=c.home[ax]===sgn;
+        // геометрія грані
+        const fc=[p[0]+S*d[0],p[1]+S*d[1],p[2]+S*d[2]];
+        let t1,t2;
+        if(d[0]!==0){t1=[0,1,0];t2=[0,0,1];}
+        else if(d[1]!==0){t1=[1,0,0];t2=[0,0,1];}
+        else{t1=[1,0,0];t2=[0,1,0];}
+        let corners=[
+          [fc[0]+S*(t1[0]+t2[0]),fc[1]+S*(t1[1]+t2[1]),fc[2]+S*(t1[2]+t2[2])],
+          [fc[0]+S*(t1[0]-t2[0]),fc[1]+S*(t1[1]-t2[1]),fc[2]+S*(t1[2]-t2[2])],
+          [fc[0]-S*(t1[0]+t2[0]),fc[1]-S*(t1[1]+t2[1]),fc[2]-S*(t1[2]+t2[2])],
+          [fc[0]-S*(t1[0]-t2[0]),fc[1]-S*(t1[1]-t2[1]),fc[2]-S*(t1[2]-t2[2])],
+        ];
+        let nrm=[d[0],d[1],d[2]], fcw=fc, pw=p;
+        if(sel&&Rf){
+          corners=corners.map(v=>mulv(Rf,v));
+          nrm=mulv(Rf,nrm); fcw=mulv(Rf,fc); pw=mulv(Rf,p);
+        }
+        // відсікання задніх граней
+        if(dot3(V2,nrm)<=0.02)continue;
+        const scr=corners.map(proj);
+        const depth=dot3(V2,fcw)+0.001*dot3(V2,pw);
+        const item={depth,body:scr.map(q=>[q[0],q[1]]),bodyFill:shaded(bodyRgb,nrm),sticker:null,stickerFill:null,stroke:null};
+        if(hasSticker){
+          const rgb=STICKER_RGB[HOME_COLOR[k]];
+          const stk=corners.map(v=>[
+            fcw[0]+INSET*(v[0]-fcw[0]),
+            fcw[1]+INSET*(v[1]-fcw[1]),
+            fcw[2]+INSET*(v[2]-fcw[2])]).map(proj).map(q=>[q[0],q[1]]);
+          item.sticker=stk;
+          item.stickerFill=shaded(rgb,nrm);
+          item.stroke=darker(rgb,nrm,0.45);
+        }
+        faces.push(item);
+      }
+    }
+    faces.sort((a,b)=>a.depth-b.depth);
+    for(const f of faces){
+      ctx.fillStyle=f.bodyFill; poly(f.body); ctx.fill();
+      if(f.sticker){
+        ctx.fillStyle=f.stickerFill; poly(f.sticker); ctx.fill();
+        ctx.strokeStyle=f.stroke; ctx.lineWidth=Math.max(1,scale*0.03); ctx.stroke();
+      }
+    }
+  }
+  return {draw,resize,readTheme};
+}
+
+/* ============ J5–J6. Анімація і плеєр ============ */
+const BASE_DUR={q:420,h:640,w:660};
+function moveDuration(m,speed,reduced){
+  const pm=parseMove(m);
+  let d=pm.whole?BASE_DUR.w:(pm.quarters===2?BASE_DUR.h:BASE_DUR.q);
+  d/=speed;
+  if(reduced)d*=0.15;
+  return d;
+}
+function easeInOutCubic(t){return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
+
+function boot(){
+  const app=document.getElementById('cube-app');
+  const canvas=document.getElementById('cv');
+  const R=makeRenderer(canvas);
+  const el={
+    notation:document.getElementById('notation'),
+    caption:document.getElementById('caption'),
+    stepnum:document.getElementById('stepnum'),
+    play:document.getElementById('btnPlay'),
+    icoPlay:document.getElementById('icoPlay'),
+    icoPause:document.getElementById('icoPause'),
+    back:document.getElementById('btnBack'),
+    fwd:document.getElementById('btnFwd'),
+    restart:document.getElementById('btnRestart'),
+    speed:document.getElementById('speed'),
+    kicker:document.getElementById('kicker'),
+    lessonBody:document.getElementById('lessonBody'),
+    prev:document.getElementById('btnPrev'),
+    next:document.getElementById('btnNext'),
+    chapSel:document.getElementById('chapSel'),
+  };
+  const starts=computeStarts();
+  verifyChapters(starts);
+
+  const P={
+    chapter:0, pointer:0, mode:'stopped',
+    state:cloneState(starts[0]),
+    tween:null, // {m,axis,layer,target,angle,t,dur,backward}
+    dirty:true,
+    speed:1,
+    reduced:window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  };
+  function seqOf(){return CHAPTERS[P.chapter].demo;}
+  function capAt(i){
+    const d=seqOf();
+    for(let k=Math.min(i,d.length-1);k>=0;k--) if(d[k].cap) return d[k].cap;
+    return '';
+  }
+
+  /* ---- tween helpers ---- */
+  // frozen=true заморожує твін на місці (пауза посеред повороту)
+  function startTween(m,backward,fast){
+    const pm=parseMove(m);
+    P.tween={
+      m, axis:pm.axis, layer:pm.layer,
+      target:(backward?-1:1)*pm.q*Math.PI/2,
+      t:0,
+      dur:fast?Math.max(120,moveDuration(m,P.speed*2,P.reduced)):moveDuration(m,P.speed,P.reduced),
+      backward:!!backward,
+      stepping:!!fast,
+      frozen:false,
+    };
+  }
+  function commitTween(){
+    const tw=P.tween; if(!tw)return;
+    if(tw.backward){ applyMove(P.state, invertMoves([tw.m])[0]); P.pointer--; }
+    else { applyMove(P.state, tw.m); P.pointer++; }
+    P.tween=null; P.dirty=true;
+  }
+  function discardTween(){ P.tween=null; P.dirty=true; }
+
+  /* ---- команди плеєра ---- */
+  function updateUI(){
+    const d=seqOf(), n=d.length;
+    // чіпи
+    const chips=el.notation.children;
+    for(let i=0;i<chips.length;i++){
+      chips[i].classList.toggle('done',i<P.pointer);
+      chips[i].classList.toggle('cur',i===P.pointer&&i<n);
+    }
+    const curChip=chips[Math.min(P.pointer,n-1)];
+    if(curChip){
+      const c=el.notation;
+      const target=curChip.offsetLeft-c.clientWidth/2+curChip.offsetWidth/2;
+      c.scrollTo({left:target,behavior:P.reduced?'auto':'smooth'});
+    }
+    // кнопки
+    el.back.disabled=(P.pointer===0&&!P.tween);
+    el.fwd.disabled=(P.pointer>=n&&!P.tween);
+    el.icoPlay.style.display=(P.mode==='playing')?'none':'block';
+    el.icoPause.style.display=(P.mode==='playing')?'block':'none';
+    el.play.setAttribute('aria-label',P.mode==='playing'?'Пауза':'Пуск');
+    el.play.setAttribute('aria-pressed',P.mode==='playing'?'true':'false');
+    // лічильник і підпис
+    el.stepnum.textContent='Крок '+Math.min(P.pointer+(P.tween&&!P.tween.backward?1:0),n)+' з '+n;
+    let cap;
+    if(P.tween&&!P.tween.backward)cap=capAt(P.pointer);
+    else if(P.pointer===0)cap='Натисніть ▶, щоб подивитися цей крок у русі.';
+    else if(P.pointer>=n)cap=capAt(n-1)+(P.chapter<CHAPTERS.length-1?' Тисніть «Далі ▶».':'');
+    else cap=capAt(P.pointer-1);
+    el.caption.textContent=cap;
+  }
+  function play(){
+    if(P.mode==='playing'){P.mode='stopped';updateUI();return;}
+    const n=seqOf().length;
+    if(P.pointer>=n&&!P.tween){restart();}
+    P.mode='playing';
+    if(!P.tween&&P.pointer<seqOf().length)startTween(seqOf()[P.pointer].m,false,false);
+    updateUI();
+  }
+  function stepF(){
+    P.mode='stopped';
+    if(P.tween){commitTween();updateUI();return;}
+    if(P.pointer>=seqOf().length)return;
+    startTween(seqOf()[P.pointer].m,false,true);
+    updateUI();
+  }
+  function stepB(){
+    P.mode='stopped';
+    if(P.tween){discardTween();updateUI();return;}
+    if(P.pointer===0)return;
+    startTween(seqOf()[P.pointer-1].m,true,true);
+    updateUI();
+  }
+  function seek(i){
+    P.mode='stopped'; P.tween=null;
+    P.state=cloneState(starts[P.chapter]);
+    const d=seqOf();
+    for(let k=0;k<i;k++)applyMove(P.state,d[k].m);
+    P.pointer=i; P.dirty=true; updateUI();
+  }
+  function restart(){seek(0);}
+  function loadChapter(k){
+    P.chapter=Math.max(0,Math.min(CHAPTERS.length-1,k));
+    P.mode='stopped'; P.tween=null;
+    P.state=cloneState(starts[P.chapter]);
+    P.pointer=0; P.dirty=true;
+    const ch=CHAPTERS[P.chapter];
+    el.kicker.textContent='Розділ '+(P.chapter+1)+' з '+CHAPTERS.length;
+    el.lessonBody.innerHTML=ch.html;
+    el.lessonBody.scrollTop=0;
+    el.chapSel.value=String(P.chapter);
+    el.prev.disabled=(P.chapter===0);
+    el.next.disabled=(P.chapter===CHAPTERS.length-1);
+    // чіпи нотації
+    el.notation.innerHTML='';
+    ch.demo.forEach((s,i)=>{
+      const b=document.createElement('button');
+      b.className='chip'; b.type='button';
+      b.textContent=prettyMove(s.m);
+      b.setAttribute('aria-label','Перейти до кроку '+(i+1)+': '+prettyMove(s.m));
+      b.addEventListener('click',()=>seek(i));
+      el.notation.appendChild(b);
+    });
+    updateUI();
+  }
+
+  /* ---- rAF-цикл ---- */
+  let last=null;
+  function frame(ts){
+    requestAnimationFrame(frame);
+    if(last===null)last=ts;
+    const dt=Math.min(64,ts-last); last=ts;
+    const tw=P.tween;
+    if(tw&&!tw.frozen){
+      tw.t+=dt/tw.dur;
+      if(tw.t>=1){
+        commitTween();
+        if(P.mode==='playing'){
+          if(P.pointer<seqOf().length)startTween(seqOf()[P.pointer].m,false,false);
+          else P.mode='stopped';
+        }
+        updateUI();
+      }
+    }
+    if(P.tween||P.dirty){
+      const t2=P.tween;
+      R.draw(P.state, t2?{axis:t2.axis,layer:t2.layer,angle:t2.target*easeInOutCubic(Math.min(1,t2.t))}:null);
+      P.dirty=false;
+    }
+  }
+  // пауза посеред повороту заморожує твін; продовження — розморожує
+  function refreshFrozen(){ if(P.tween&&!P.tween.stepping)P.tween.frozen=(P.mode!=='playing'); }
+
+  /* ---- події ---- */
+  el.play.addEventListener('click',()=>{play();refreshFrozen();});
+  el.fwd.addEventListener('click',stepF);
+  el.back.addEventListener('click',stepB);
+  el.restart.addEventListener('click',restart);
+  el.speed.addEventListener('change',()=>{P.speed=parseFloat(el.speed.value)||1;});
+  el.prev.addEventListener('click',()=>loadChapter(P.chapter-1));
+  el.next.addEventListener('click',()=>loadChapter(P.chapter+1));
+  el.chapSel.addEventListener('change',()=>loadChapter(parseInt(el.chapSel.value,10)));
+  document.addEventListener('keydown',(e)=>{
+    const t=e.target;
+    if(t&&(t.tagName==='SELECT'||t.tagName==='INPUT'||t.tagName==='TEXTAREA'))return;
+    if(e.code==='Space'){e.preventDefault();play();refreshFrozen();}
+    else if(e.key==='ArrowRight'){e.preventDefault();stepF();}
+    else if(e.key==='ArrowLeft'){e.preventDefault();stepB();}
+    else if(e.key==='ArrowDown'){e.preventDefault();loadChapter(P.chapter+1);}
+    else if(e.key==='ArrowUp'){e.preventDefault();loadChapter(P.chapter-1);}
+  });
+
+  // селектор розділів
+  CHAPTERS.forEach((ch,i)=>{
+    const o=document.createElement('option');
+    o.value=String(i);
+    o.textContent=(i===0?'Вступ. Знайомство з кубиком':ch.title);
+    el.chapSel.appendChild(o);
+  });
+
+  // розмір і тема
+  const ro=new ResizeObserver(()=>{R.resize();P.dirty=true;});
+  ro.observe(canvas.parentElement);
+  R.readTheme(app);
+  const mq=window.matchMedia('(prefers-color-scheme: dark)');
+  if(mq.addEventListener)mq.addEventListener('change',()=>{R.readTheme(app);P.dirty=true;});
+  const mo=new MutationObserver(()=>{R.readTheme(app);P.dirty=true;});
+  mo.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  if(document.body)mo.observe(document.body,{attributes:true,attributeFilter:['data-theme']});
+  const rm=window.matchMedia('(prefers-reduced-motion: reduce)');
+  if(rm.addEventListener)rm.addEventListener('change',()=>{P.reduced=rm.matches;});
+
+  R.resize();
+  loadChapter(0);
+  requestAnimationFrame(frame);
+}
+
+if(typeof document!=='undefined'&&document.getElementById){
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else if(typeof module!=='undefined'){
+  module.exports={I3,mul3,mulv,tr3,rotQ,rotA,newSolved,cloneState,posOf,MOVES,parseMove,applyMove,applyMoves,invertMoves,isSolved,CHAPTERS,computeStarts,verifyChapters,makeRenderer};
+}
+</script>
